@@ -1,70 +1,68 @@
-# Runner Agent
+# Runner
 
-Runner Agent is an MCP server for Strava workouts. It pulls activity data, keeps a local cache, and helps with training summaries and plans.
+A Hyrox training coach powered by Strava + AI — with a web dashboard and VS Code Copilot integration.
+
+## Project Structure
+
+```
+Runner/
+├── backend/    ← MCP stdio server + Express REST API
+├── frontend/   ← React + Vite + Tailwind web app
+├── data/       ← Runtime data (gitignored): tokens, cache, plans
+└── scripts/    → moved to backend/scripts/
+```
 
 ## Setup
 
 ```bash
-cd Runner
-npm install
-cp .env.example .env
+npm install          # installs all workspaces
+cp .env.example .env # fill in Strava credentials
 ```
 
-Fill in `.env`:
+Fill in `.env` (at project root):
 
 ```env
 STRAVA_CLIENT_ID=your_client_id
 STRAVA_CLIENT_SECRET=your_client_secret
-OLLAMA_API_KEY=your_ollama_api_key
-OLLAMA_BASE_URL=https://ollama.com/v1
-OLLAMA_MODEL=gemma4:31b-cloud
 ```
 
-## Strava auth
-
-Run the one-time browser login flow:
+## Strava Auth (one-time)
 
 ```bash
 npm run strava-auth
 ```
 
-## Run the server
+## Development
+
+Run both the REST API and the frontend together:
 
 ```bash
 npm run dev
 ```
 
-For production:
+Or individually:
 
 ```bash
-npm run build
-npm start
+npm run dev:api       # REST API on http://localhost:3001
+npm run dev:frontend  # Web app on http://localhost:5173
 ```
 
-## MCP client config
+## Web Dashboard
 
-Use the built server:
+Open **http://localhost:5173** to see:
+- 🏆 Race countdown to your next Hyrox race
+- 📊 Weekly km, total runs, next session stats
+- 📅 Interactive calendar with Strava activities + training plan overlay
+- 💬 Floating chat widget → opens VS Code Copilot agent
 
-```json
-{
-  "mcpServers": {
-    "runner-agent": {
-      "command": "node",
-      "args": ["C:/path/to/Runner/dist/index.js"],
-      "cwd": "C:/path/to/Runner"
-    }
-  }
-}
-```
-
-Or run directly from source:
+## MCP Server (VS Code Copilot)
 
 ```json
 {
   "mcpServers": {
     "runner-agent": {
       "command": "npx",
-      "args": ["tsx", "src/index.ts"],
+      "args": ["tsx", "backend/src/index.ts"],
       "cwd": "C:/path/to/Runner"
     }
   }
@@ -73,7 +71,11 @@ Or run directly from source:
 
 ## Scripts
 
-- `npm run dev` - run from source
-- `npm run build` - compile TypeScript
-- `npm start` - run compiled output
-- `npm run strava-auth` - authorize Strava
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start API + frontend together |
+| `npm run dev:api` | REST API only (port 3001) |
+| `npm run dev:frontend` | Frontend only (port 5173) |
+| `npm run build` | Build backend + frontend |
+| `npm run strava-auth` | One-time Strava OAuth |
+

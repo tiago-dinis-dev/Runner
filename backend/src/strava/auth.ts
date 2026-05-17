@@ -2,8 +2,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import axios from "axios";
 import type { StravaTokens } from "./types.js";
+import { DATA_DIR } from "../config.js";
 
-const TOKEN_FILE = path.join(process.cwd(), "data", "strava-tokens.json");
+const TOKEN_FILE = path.join(DATA_DIR, "strava-tokens.json");
 
 export function loadTokens(): StravaTokens | null {
   // Prefer token file; fall back to env vars

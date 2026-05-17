@@ -3,10 +3,11 @@ import * as path from "path";
 import { getActivities } from "../../cache.js";
 import { speedToPace } from "../prompts.js";
 import { computeAthleteProfile } from "./helpers.js";
+import { DATA_DIR } from "../../config.js";
 
 // ── Plans storage path ────────────────────────────────────────────────────────
 function plansDir(): string {
-  const dir = path.join(process.cwd(), "data", "plans");
+  const dir = path.join(DATA_DIR, "plans");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
 }

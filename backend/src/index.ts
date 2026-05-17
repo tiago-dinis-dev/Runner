@@ -1,7 +1,7 @@
 import axios from "axios";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import * as dotenv from "dotenv";
+import "./config.js"; // loads .env from workspace root
 import { z } from "zod";
 import {
   toolAnalyzeFitnessTrend,
@@ -18,8 +18,6 @@ import {
   toolSetRaceGoal,
   toolSuggestNextWeek,
 } from "./agent/tools/index.js";
-
-dotenv.config();
 
 const server = new McpServer({
   name: "runner-agent",

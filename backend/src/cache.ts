@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { listActivities } from "./strava/client.js";
 import type { SummaryActivity } from "./strava/types.js";
+import { DATA_DIR } from "./config.js";
 
 interface CacheFile {
   fetchedAt: number; // unix timestamp ms
@@ -9,7 +10,7 @@ interface CacheFile {
 }
 
 function getCacheFilePath(): string {
-  return process.env.CACHE_FILE ?? path.join(process.cwd(), "data", "activities-cache.json");
+  return process.env.CACHE_FILE ?? path.join(DATA_DIR, "activities-cache.json");
 }
 
 function getTtlMs(): number {
