@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import * as fs from "fs";
+import * as path from "path";
 import "./config.js"; // loads .env from workspace root
 import {
   toolGetRecentActivities,
@@ -9,7 +11,12 @@ import {
   toolGetAthleteProfile,
   toolListPlans,
   toolLoadPlan,
+  toolDeletePlan,
+  toolMovePlanSession,
+  toolSavePlan,
 } from "./agent/tools/index.js";
+import { handleChat } from "./chat.js";
+import { DATA_DIR } from "./config.js";
 
 const app = express();
 const PORT = process.env.API_PORT ?? 3001;
@@ -90,6 +97,98 @@ app.get("/api/plans/:filename", async (req, res) => {
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/plans/:filename ───────────────────────────────────────────────
+app.delete("/api/plans/:filename", async (req, res) => {
+  try {
+    // Direct UI delete — bypass the chat confirmation flow, always execute
+    const result = await toolDeletePlan({ filename: req.params.filename, confirm: true });
+    const r = result as any;
+    if (r.error) {
+      res.status(404).json({ error: r.error });
+      return;
+    }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PATCH /api/plans/:filename/move-session ───────────────────────────────────
+app.patch("/api/plans/:filename/move-session", async (req, res) => {
+  try {
+    const { from_date, label, to_date } = req.body as {
+      from_date: string;
+      label: string;
+      to_date: string;
+    };
+    if (!from_date || !label || !to_date) {
+      res.status(400).json({ error: "from_date, label, and to_date are required" });
+      return;
+    }
+    const result = await toolMovePlanSession({ filename: req.params.filename, from_date, label, to_date });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PATCH /api/plans/:filename/apply-edit — write confirmed edit from chat ────
+app.patch("/api/plans/:filename/apply-edit", async (req, res) => {
+  try {
+    const { updated_markdown } = req.body as { updated_markdown: string };
+    if (!updated_markdown) {
+      res.status(400).json({ error: "updated_markdown is required" });
+      return;
+    }
+    const plansDir = path.join(DATA_DIR, "plans");
+    const filepath = path.join(plansDir, req.params.filename);
+    if (!fs.existsSync(filepath)) {
+      res.status(404).json({ error: `Plan "${req.params.filename}" not found.` });
+      return;
+    }
+    fs.writeFileSync(filepath, updated_markdown);
+    res.json({ applied: true, filename: req.params.filename, message: "✅ Plan updated." });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/plans — save a new plan directly (confirmed from chat) ───────────
+app.post("/api/plans", async (req, res) => {
+  try {
+    const { filename, content } = req.body as { filename: string; content: string };
+    if (!filename || !content) {
+      res.status(400).json({ error: "filename and content are required" });
+      return;
+    }
+    const plansDir = path.join(DATA_DIR, "plans");
+    if (!fs.existsSync(plansDir)) fs.mkdirSync(plansDir, { recursive: true });
+    const filepath = path.join(plansDir, filename);
+    fs.writeFileSync(filepath, content);
+    res.json({ saved: true, filename, message: `✅ Plan "${filename}" saved.` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/chat ────────────────────────────────────────────────────────────
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { messages } = req.body as {
+      messages: Array<{ role: "user" | "assistant"; content: string }>;
+    };
+    if (!Array.isArray(messages) || messages.length === 0) {
+      res.status(400).json({ error: "messages array is required" });
+      return;
+    }
+    const result = await handleChat(messages);
+    res.json(result);
+  } catch (err: any) {
+    console.error("Chat error:", err);
+    res.status(500).json({ error: err.message ?? "Chat failed" });
   }
 });
 

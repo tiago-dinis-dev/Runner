@@ -5,10 +5,12 @@ import {
 } from 'date-fns';
 import type { Activity } from '../api/client';
 import { CATEGORY_DOT, CATEGORY_ICONS, CATEGORY_COLORS } from './ActivityCard';
+import MoveSessionModal from './MoveSessionModal';
 
 export interface PlanSession {
   date: string; // YYYY-MM-DD
   label: string;
+  details?: string;
   type: 'Run' | 'Hyrox' | 'Gym' | 'Erg' | 'Race';
   phase?: 'Base' | 'Build' | 'Race Week' | 'Vacation';
 }
@@ -24,14 +26,18 @@ interface Props {
   activities: Activity[];
   planSessions?: PlanSession[];
   phases?: PhaseRange[];
+  onActivityClick?: (id: number) => void;
+  activePlanFilename?: string | null;
+  onSessionMoved?: () => void;
 }
 
 type ViewMode = 'both' | 'past' | 'plan';
 
-export default function Calendar({ activities, planSessions = [], phases = [] }: Props) {
+export default function Calendar({ activities, planSessions = [], phases = [], onActivityClick, activePlanFilename, onSessionMoved }: Props) {
   const [current, setCurrent] = useState(new Date());
   const [selected, setSelected] = useState<Date | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('both');
+  const [movingSession, setMovingSession] = useState<PlanSession | null>(null);
 
   const monthStart = startOfMonth(current);
   const monthEnd = endOfMonth(current);
@@ -100,6 +106,12 @@ export default function Calendar({ activities, planSessions = [], phases = [] }:
 
   return (
     <div className="flex flex-col lg:flex-row gap-6">
+      <MoveSessionModal
+        session={movingSession}
+        planFilename={activePlanFilename ?? null}
+        onClose={() => setMovingSession(null)}
+        onMoved={() => { setMovingSession(null); onSessionMoved?.(); }}
+      />
       {/* Calendar grid */}
       <div className="flex-1">
         {/* Header */}
@@ -243,12 +255,16 @@ export default function Calendar({ activities, planSessions = [], phases = [] }:
               <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Completed</p>
               <div className="flex flex-col gap-2">
                 {selectedActivities.map(a => (
-                  <div key={a.id} className="flex items-start gap-2">
+                  <button
+                    key={a.id}
+                    onClick={() => onActivityClick?.(a.id)}
+                    className="flex items-start gap-2 w-full text-left hover:bg-white/5 rounded-lg p-1 -m-1 transition-colors cursor-pointer group"
+                  >
                     <div className={`${CATEGORY_COLORS[a.category] ?? 'bg-gray-500'} w-7 h-7 rounded-lg flex items-center justify-center text-sm shrink-0`}>
                       {CATEGORY_ICONS[a.category]}
                     </div>
-                    <div>
-                      <p className="text-white text-sm font-medium">{a.name}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium group-hover:text-purple-300 transition-colors">{a.name}</p>
                       <p className="text-slate-400 text-xs">
                         {a.duration_min}m
                         {a.distance_km > 0 && ` · ${a.distance_km.toFixed(1)} km`}
@@ -256,7 +272,10 @@ export default function Calendar({ activities, planSessions = [], phases = [] }:
                         {a.avg_hr && ` · ♥ ${Math.round(a.avg_hr)}`}
                       </p>
                     </div>
-                  </div>
+                    <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 transition-colors shrink-0 mt-1" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
                 ))}
               </div>
             </div>
@@ -267,13 +286,38 @@ export default function Calendar({ activities, planSessions = [], phases = [] }:
               <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Planned</p>
               <div className="flex flex-col gap-2">
                 {selectedPlan.map((s, i) => (
-                  <div key={i} className={`border rounded-lg p-2 ${PLAN_COLORS[s.type] ?? 'border-gray-500 text-gray-300'}`} style={{ borderStyle: 'dashed' }}>
+                  <div key={i} className={`border rounded-xl p-3 ${PLAN_COLORS[s.type] ?? 'border-gray-500 text-gray-300'}`} style={{ borderStyle: 'dashed' }}>
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium">{CATEGORY_ICONS[s.type === 'Erg' ? 'CardioMix' : s.type]} {s.label}</p>
-                      {s.phase && (
-                        <span className={`text-[10px] font-medium shrink-0 ${PHASE_TEXT[s.phase]}`}>{s.phase}</span>
-                      )}
+                      <p className="text-sm font-semibold flex-1 leading-snug">
+                        {CATEGORY_ICONS[s.type === 'Erg' ? 'CardioMix' : s.type]} {s.label}
+                      </p>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {s.phase && (
+                          <span className={`text-[10px] font-medium ${PHASE_TEXT[s.phase]}`}>{s.phase}</span>
+                        )}
+                        {activePlanFilename && (
+                          <button
+                            onClick={() => setMovingSession(s)}
+                            title="Move to another date"
+                            className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                            aria-label="Move session"
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </div>
+                    {s.details && (
+                      <div className="mt-2 pt-2 border-t border-current/10 flex flex-col gap-1">
+                        {s.details.split(/\s*·\s*/).filter(Boolean).map((chunk, ci) => (
+                          <p key={ci} className="text-xs opacity-80 leading-snug">
+                            <span className="opacity-40 mr-1">›</span>{chunk.trim()}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -7,4 +7,8 @@ export {
   toolSavePlan,
   toolListPlans,
   toolLoadPlan,
+  toolDeletePlan,
+  toolMovePlanSession,
+  toolEditPlanSession,
+  toolNaturalEditPlan,
 } from "./planning.js";
