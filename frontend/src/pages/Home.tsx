@@ -6,7 +6,7 @@ import Calendar from '../components/Calendar';
 import ActivityDetailModal from '../components/ActivityDetailModal';
 import { useActivities } from '../hooks/useActivities';
 import { usePlans, usePlan } from '../hooks/usePlan';
-import { parsePlan } from '../components/planParser';
+import { parsePlan, matchPlanSessions } from '../components/planParser';
 
 // ── Trash icon ────────────────────────────────────────────────────────────────
 function TrashIcon({ className }: { className?: string }) {
@@ -31,7 +31,8 @@ export default function Home() {
   const activePlanMeta = selectedPlanMeta ?? defaultPlan;
 
   const { plan, refetch: refetchPlanDetail } = usePlan(activePlanMeta?.filename ?? null);
-  const { sessions: planSessions, phases } = plan ? parsePlan(plan.content) : { sessions: [], phases: [] };
+  const { sessions: rawSessions, phases } = plan ? parsePlan(plan.content) : { sessions: [], phases: [] };
+  const planSessions = matchPlanSessions(rawSessions, activities);
 
   useEffect(() => {
     api.weeklySummary(8).then(d => setWeeks(d.weeks)).catch(() => {});

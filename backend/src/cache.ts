@@ -1,5 +1,6 @@
 import { listActivities } from "./strava/client.js";
 import type { SummaryActivity } from "./strava/types.js";
+import { classifyActivity } from "./strava/types.js";
 import { db } from "./db.js";
 
 function getTtlMs(): number {
@@ -8,7 +9,7 @@ function getTtlMs(): number {
 }
 
 function toSummaryActivity(row: any): SummaryActivity {
-  return {
+  const a: SummaryActivity = {
     id: Number(row.id),
     name: row.name,
     sport_type: row.sport_type,
@@ -24,8 +25,10 @@ function toSummaryActivity(row: any): SummaryActivity {
     max_heartrate: row.max_heartrate ?? undefined,
     suffer_score: row.suffer_score ?? undefined,
     total_photo_count: row.total_photo_count ?? undefined,
-    category: row.category as SummaryActivity["category"] ?? undefined,
   };
+  // Always re-classify so improvements to classifyActivity take effect without a cache purge
+  a.category = classifyActivity(a);
+  return a;
 }
 
 async function isCacheStale(): Promise<boolean> {

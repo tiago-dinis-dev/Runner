@@ -1,4 +1,5 @@
 import type { PlanSession } from './Calendar';
+import type { Activity } from '../api/client';
 
 export interface PhaseRange {
   name: 'Base' | 'Build' | 'Race Week' | 'Vacation';
@@ -107,7 +108,8 @@ export function parsePlan(markdown: string, year = 2026): ParsedPlan {
         currentPhase = 'Race Week';
         weekMonday = null;
         const r = parsePhaseRange(line, year);
-        if (r) phases.push({ name: 'Race Week', label: 'Phase 3 — Race Week', ...r });
+        const isTaper = /TAPER/i.test(line);
+        if (r) phases.push({ name: 'Race Week', label: isTaper ? 'Phase 3 — Taper & Peak' : 'Phase 3 — Race Week', ...r });
         continue;
       }
       if (/VACATION/i.test(line)) {
@@ -188,4 +190,51 @@ export function parsePlan(markdown: string, year = 2026): ParsedPlan {
 /** Legacy convenience wrapper. */
 export function parsePlanSessions(markdown: string, year = 2026): PlanSession[] {
   return parsePlan(markdown, year).sessions;
+}
+
+// ── Activity-to-plan session matching ─────────────────────────────────────────
+
+const TYPE_COMPAT: Record<PlanSession['type'], Activity['category'][]> = {
+  Run:   ['Run'],
+  Hyrox: ['Hyrox'],
+  Gym:   ['Gym'],
+  Erg:   ['CardioMix', 'Gym'],
+  Race:  ['Run', 'Hyrox'],
+};
+
+/** Simple keyword overlap score between two strings (0–1). */
+function keywordScore(a: string, b: string): number {
+  const words = (s: string) => s.toLowerCase().split(/\W+/).filter(w => w.length > 2);
+  const wa = new Set(words(a));
+  const wb = words(b);
+  if (wa.size === 0 || wb.length === 0) return 0;
+  const hits = wb.filter(w => wa.has(w)).length;
+  return hits / Math.max(wa.size, wb.length);
+}
+
+/**
+ * Enriches each plan session with `completedActivity` if a compatible Strava
+ * activity exists on the same date. Prefers activities with higher keyword
+ * overlap with the session label when multiple candidates exist.
+ */
+export function matchPlanSessions(sessions: PlanSession[], activities: Activity[]): PlanSession[] {
+  const actsByDate = activities.reduce<Record<string, Activity[]>>((acc, a) => {
+    const d = a.date.slice(0, 10);
+    (acc[d] ??= []).push(a);
+    return acc;
+  }, {});
+
+  return sessions.map(session => {
+    const candidates = (actsByDate[session.date] ?? []).filter(a =>
+      (TYPE_COMPAT[session.type] ?? []).includes(a.category)
+    );
+    if (candidates.length === 0) return session;
+
+    // Pick the candidate with the best keyword match (or first if all tied)
+    const best = candidates.reduce((top, a) => {
+      return keywordScore(session.label, a.name) >= keywordScore(session.label, top.name) ? a : top;
+    }, candidates[0]);
+
+    return { ...session, completedActivity: best };
+  });
 }

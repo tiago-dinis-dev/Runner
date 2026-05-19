@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
 import { api, type ChatMessage, type PendingAction } from '../api/client';
 
 const MIN_W = 380;

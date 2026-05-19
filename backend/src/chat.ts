@@ -18,6 +18,7 @@ import {
   toolMovePlanSession,
   toolEditPlanSession,
   toolNaturalEditPlan,
+  toolGetPlanCompliance,
 } from "./agent/tools/index.js";
 
 // ── OpenAI-compatible client → Ollama cloud ───────────────────────────────────
@@ -46,6 +47,7 @@ When answering questions:
 | "Adapt this week" / "change Tuesday's workout" | list_plans → natural_edit_plan for each affected session |
 | "Delete plan X" | list_plans → delete_plan (without confirm first — returns preview) |
 | "Show me my plans" | list_plans |
+| "Am I on track?" / "How's my plan going?" / "What did I miss?" / "Plan adherence" | get_plan_compliance |
 
 **CRITICAL**: When the user asks to update/edit/change an existing plan — even just one session — you MUST use natural_edit_plan on the existing file. Never call build_training_plan or save_plan when the user is asking to modify an existing plan. Modifying ≠ creating.
 
@@ -329,6 +331,22 @@ export const chatTools: ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_plan_compliance",
+      description: "Check how well the athlete is following their training plan. Compares planned sessions to actual Strava activities, computes compliance %, lists completed/missed/upcoming sessions. Use when the user asks 'am I on track?', 'how is my plan going?', 'what did I miss?', 'plan adherence', or when giving coaching advice based on plan execution.",
+      parameters: {
+        type: "object",
+        properties: {
+          filename: {
+            type: "string",
+            description: "Specific plan filename (from list_plans). If omitted, uses the most recently saved plan.",
+          },
+        },
+      },
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -351,6 +369,7 @@ const toolExecutors: Record<string, ToolFn> = {
   move_plan_session: toolMovePlanSession,
   natural_edit_plan: toolNaturalEditPlan,
   edit_plan_session: toolEditPlanSession,
+  get_plan_compliance: toolGetPlanCompliance,
 };
 
 const MAX_TOOL_CHARS = 4000;

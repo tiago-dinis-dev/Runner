@@ -566,3 +566,152 @@ export async function toolNaturalEditPlan(args: {
   // Don't write automatically. Return preview and the candidate changes so the agent can ask for confirmation.
   return { preview: true, filename: args.filename, date: target.date, old_title: target.title, new_title: parsed.new_title, new_details: parsed.new_details, updated_markdown: updatedMarkdown };
 }
+
+// ── Tool: get_plan_compliance ─────────────────────────────────────────────────
+
+const TYPE_COMPAT_R: Record<string, string[]> = {
+  Run:   ['Run'],
+  Hyrox: ['Hyrox'],
+  Gym:   ['Gym'],
+  Erg:   ['CardioMix', 'Gym'],
+  Race:  ['Run', 'Hyrox'],
+};
+
+function inferTypeR(label: string): string {
+  const l = label.toLowerCase();
+  if (l.includes('race') || l.includes('🏆')) return 'Race';
+  if (l.includes('erg') || l.includes('🚣')) return 'Erg';
+  if (l.includes('hyrox') || l.includes('🏋')) return 'Hyrox';
+  if (l.includes('gym') || l.includes('💪') || l.includes('weight')) return 'Gym';
+  return 'Run';
+}
+
+function parsePlanSessionsR(content: string): { date: string; label: string; type: string }[] {
+  const sessions: { date: string; label: string; type: string }[] = [];
+  const lines = content.split('\n');
+  let weekMonday: Date | null = null;
+  const year = new Date().getFullYear();
+
+  for (const line of lines) {
+    const weekMatch = line.match(/^###\s+Week\s+\d+\s+[·•]\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d+)/);
+    if (weekMatch) {
+      const mi = MONTH_MAP_R[weekMatch[1]];
+      const d = parseInt(weekMatch[2]);
+      if (mi !== undefined && !isNaN(d)) weekMonday = getMondayOfWeekR(year, mi, d);
+      continue;
+    }
+    const explicit = line.match(/^\|\s*\*{0,2}((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2})\*{0,2}\s*\|\s*([^|]+?)\s*\|/);
+    if (explicit) {
+      const parts = explicit[1].trim().split(/\s+/);
+      const mi = MONTH_MAP_R[parts[1]];
+      const d = parseInt(parts[2]);
+      if (mi !== undefined && !isNaN(d)) {
+        const label = cleanLabelR(explicit[2]);
+        sessions.push({ date: toDateStrR(year, mi, d), label, type: inferTypeR(label) });
+      }
+      continue;
+    }
+    if (weekMonday) {
+      const dayMatch = line.match(/^\|\s*(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s*\|\s*([^|]+?)\s*\|/);
+      if (dayMatch) {
+        const t = new Date(weekMonday.getFullYear(), weekMonday.getMonth(), weekMonday.getDate() + (DAY_OFFSET_R[dayMatch[1]] ?? 0));
+        const label = cleanLabelR(dayMatch[2]);
+        sessions.push({ date: toDateStrR(year, t.getMonth(), t.getDate()), label, type: inferTypeR(label) });
+      }
+    }
+  }
+  return sessions;
+}
+
+export async function toolGetPlanCompliance(args: { filename?: string }): Promise<object> {
+  // Resolve plan: use provided filename, or fall back to the most recently updated
+  let row;
+  if (args.filename) {
+    row = await db.plan.findUnique({ where: { filename: args.filename } });
+    if (!row) return { error: `Plan "${args.filename}" not found. Use list_plans to see available plans.` };
+  } else {
+    row = await db.plan.findFirst({ orderBy: { updated_at: 'desc' } });
+    if (!row) return { error: 'No saved plans found.' };
+  }
+
+  const meta = parseFrontmatter(row.content);
+  const body = row.content.replace(/^---[\s\S]*?---\n/, '');
+  const sessions = parsePlanSessionsR(body);
+
+  if (sessions.length === 0) {
+    return { error: 'No sessions found in plan. The plan may use an unsupported format.' };
+  }
+
+  // Fetch activities and build a date→category index
+  const all = await getActivities();
+  const actsByDate: Record<string, { name: string; category: string; distance_km: number; duration_min: number; pace_per_km?: string }[]> = {};
+  for (const a of all) {
+    const d = a.start_date_local.slice(0, 10);
+    if (!actsByDate[d]) actsByDate[d] = [];
+    actsByDate[d].push({
+      name: a.name,
+      category: a.category ?? 'Other',
+      distance_km: parseFloat((a.distance / 1000).toFixed(1)),
+      duration_min: Math.round(a.moving_time / 60),
+      pace_per_km: a.category === 'Run' ? speedToPace(a.average_speed) : undefined,
+    });
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const completed: { date: string; label: string; activity: string }[] = [];
+  const missed: { date: string; label: string }[] = [];
+  const upcoming: { date: string; label: string }[] = [];
+  const skipped: { date: string; label: string }[] = []; // rest days
+
+  for (const s of sessions) {
+    const isRestDay = /rest|recovery|🏖|😴/i.test(s.label);
+    if (isRestDay) { skipped.push({ date: s.date, label: s.label }); continue; }
+
+    const compat = TYPE_COMPAT_R[s.type] ?? [s.type];
+    const dayActs = actsByDate[s.date] ?? [];
+    const match = dayActs.find(a => compat.includes(a.category));
+
+    if (match) {
+      const stats = [
+        match.duration_min > 0 ? `${match.duration_min}m` : null,
+        match.distance_km > 0 ? `${match.distance_km}km` : null,
+        match.pace_per_km ? `${match.pace_per_km}/km` : null,
+      ].filter(Boolean).join(' · ');
+      completed.push({ date: s.date, label: s.label, activity: `${match.name}${stats ? ' (' + stats + ')' : ''}` });
+    } else if (s.date < today) {
+      missed.push({ date: s.date, label: s.label });
+    } else {
+      upcoming.push({ date: s.date, label: s.label });
+    }
+  }
+
+  const trainingSessions = sessions.filter(s => !/rest|recovery|🏖|😴/i.test(s.label));
+  const pastTraining = trainingSessions.filter(s => s.date <= today);
+  const compliancePct = pastTraining.length > 0
+    ? Math.round((completed.length / pastTraining.length) * 100)
+    : null;
+
+  return {
+    plan: meta.title ?? row.filename,
+    filename: row.filename,
+    race_type: row.race_type ?? meta.race_type ?? null,
+    race_date: meta.race_date ?? null,
+    total_training_sessions: trainingSessions.length,
+    past_sessions: pastTraining.length,
+    completed_count: completed.length,
+    missed_count: missed.length,
+    upcoming_count: upcoming.length,
+    compliance_pct: compliancePct,
+    completed,
+    missed,
+    upcoming: upcoming.slice(0, 14), // next 2 weeks only to keep context manageable
+    coaching_note: compliancePct !== null
+      ? compliancePct >= 85
+        ? '🟢 Excellent adherence! The athlete is consistently following the plan.'
+        : compliancePct >= 60
+        ? '🟡 Good adherence overall. A few sessions missed — review the missed list for patterns.'
+        : '🔴 Adherence needs attention. Several planned sessions were missed. Consider adjusting load or discussing barriers.'
+      : '⚪ No past sessions to evaluate yet — plan is upcoming.',
+  };
+}

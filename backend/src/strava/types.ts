@@ -99,7 +99,13 @@ export function classifyActivity(activity: SummaryActivity): ActivityCategory {
     sport === "crossfit" ||
     name.includes("gym") ||
     name.includes("strength") ||
-    name.includes("lift")
+    name.includes("lift") ||
+    name.includes("weight") ||
+    name.includes("dumbbell") ||
+    name.includes("barbell") ||
+    name.includes("squat") ||
+    name.includes("deadlift") ||
+    name.includes("bench press")
   )
     return "Gym";
 
