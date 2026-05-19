@@ -12,11 +12,12 @@ function buildClient(token: string): AxiosInstance {
 }
 
 /**
- * Fetch all activities for the authenticated athlete.
- * Handles pagination automatically.
- * @param maxActivities - cap total fetched (default 500, set 0 for all)
+ * Fetch activities for the authenticated athlete.
+ * @param options.after   - only return activities after this unix timestamp (incremental sync)
+ * @param options.maxActivities - cap total fetched (default 500, set 0 for all)
  */
-export async function listActivities(maxActivities = 500): Promise<SummaryActivity[]> {
+export async function listActivities(options: { after?: number; maxActivities?: number } = {}): Promise<SummaryActivity[]> {
+  const { after, maxActivities = 500 } = options;
   const token = await getValidAccessToken();
   const client = buildClient(token);
 
@@ -26,7 +27,7 @@ export async function listActivities(maxActivities = 500): Promise<SummaryActivi
 
   while (true) {
     const res = await client.get<SummaryActivity[]>("/athlete/activities", {
-      params: { per_page: perPage, page },
+      params: { per_page: perPage, page, ...(after ? { after } : {}) },
     });
 
     const batch = res.data;

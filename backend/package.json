@@ -10,15 +10,24 @@
     "dev:api": "tsx src/api.ts",
     "start:mcp": "node dist/index.js",
     "start:api": "node dist/api.js",
-    "strava-auth": "tsx scripts/strava-auth.ts"
+    "strava-auth": "tsx scripts/strava-auth.ts",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:seed": "tsx scripts/seed-db.ts",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@types/pg": "^8.20.0",
     "axios": "^1.7.9",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^5.2.1",
     "openai": "^6.38.0",
+    "pg": "^8.21.0",
+    "prisma": "^7.8.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

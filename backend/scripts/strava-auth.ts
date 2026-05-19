@@ -12,6 +12,7 @@ import * as path from "path";
 import { exec } from "child_process";
 import axios from "axios";
 import * as dotenv from "dotenv";
+import { ROOT } from "../src/config.js";
 
 dotenv.config();
 
@@ -68,15 +69,29 @@ const server = http.createServer(async (req, res) => {
 
     const tokens = tokenRes.data;
 
-    // Save tokens
-    const outDir = path.join(process.cwd(), "data");
-    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-    const outFile = path.join(outDir, "strava-tokens.json");
-    fs.writeFileSync(outFile, JSON.stringify(tokens, null, 2));
+    // Save tokens directly to .env
+    const envFile = path.join(ROOT, ".env");
+    let envContent = fs.existsSync(envFile) ? fs.readFileSync(envFile, "utf-8") : "";
+
+    const updates: Record<string, string> = {
+      STRAVA_ACCESS_TOKEN: tokens.access_token,
+      STRAVA_REFRESH_TOKEN: tokens.refresh_token,
+      STRAVA_TOKEN_EXPIRES_AT: String(tokens.expires_at),
+    };
+    for (const [key, value] of Object.entries(updates)) {
+      const regex = new RegExp(`^${key}=.*$`, "m");
+      const line = `${key}=${value}`;
+      if (regex.test(envContent)) {
+        envContent = envContent.replace(regex, line);
+      } else {
+        envContent = envContent.trimEnd() + `\n${line}\n`;
+      }
+    }
+    fs.writeFileSync(envFile, envContent);
 
     const athlete = tokens.athlete;
     console.log(`\n✅  Authorized as: ${athlete?.firstname} ${athlete?.lastname}`);
-    console.log(`   Tokens saved to: ${outFile}`);
+    console.log(`   Tokens saved to: ${envFile}`);
     console.log("\n🚀  You're all set! You can now run the MCP server.\n");
 
     res.writeHead(200, { "Content-Type": "text/html" });

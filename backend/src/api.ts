@@ -1,7 +1,5 @@
 import express from "express";
 import cors from "cors";
-import * as fs from "fs";
-import * as path from "path";
 import "./config.js"; // loads .env from workspace root
 import {
   toolGetRecentActivities,
@@ -16,7 +14,7 @@ import {
   toolSavePlan,
 } from "./agent/tools/index.js";
 import { handleChat } from "./chat.js";
-import { DATA_DIR } from "./config.js";
+import { db } from "./db.js";
 
 const app = express();
 const PORT = process.env.API_PORT ?? 3001;
@@ -143,13 +141,15 @@ app.patch("/api/plans/:filename/apply-edit", async (req, res) => {
       res.status(400).json({ error: "updated_markdown is required" });
       return;
     }
-    const plansDir = path.join(DATA_DIR, "plans");
-    const filepath = path.join(plansDir, req.params.filename);
-    if (!fs.existsSync(filepath)) {
+    const existing = await db.plan.findUnique({ where: { filename: req.params.filename } });
+    if (!existing) {
       res.status(404).json({ error: `Plan "${req.params.filename}" not found.` });
       return;
     }
-    fs.writeFileSync(filepath, updated_markdown);
+    await db.plan.update({
+      where: { filename: req.params.filename },
+      data: { content: updated_markdown },
+    });
     res.json({ applied: true, filename: req.params.filename, message: "✅ Plan updated." });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -164,10 +164,14 @@ app.post("/api/plans", async (req, res) => {
       res.status(400).json({ error: "filename and content are required" });
       return;
     }
-    const plansDir = path.join(DATA_DIR, "plans");
-    if (!fs.existsSync(plansDir)) fs.mkdirSync(plansDir, { recursive: true });
-    const filepath = path.join(plansDir, filename);
-    fs.writeFileSync(filepath, content);
+    // Extract race_type from frontmatter if present
+    const rtMatch = content.match(/^race_type:\s*"?([^"\n]+)"?/m);
+    const race_type = rtMatch ? rtMatch[1].trim() : null;
+    await db.plan.upsert({
+      where: { filename },
+      update: { content, race_type },
+      create: { filename, content, race_type },
+    });
     res.json({ saved: true, filename, message: `✅ Plan "${filename}" saved.` });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

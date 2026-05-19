@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Activity {
+  id                   BigInt    @id
+  name                 String
+  sport_type           String
+  start_date           DateTime
+  start_date_local     DateTime
+  distance             Float
+  moving_time          Int
+  elapsed_time         Int
+  total_elevation_gain Float
+  average_speed        Float
+  max_speed            Float
+  average_heartrate    Float?
+  max_heartrate        Float?
+  suffer_score         Int?
+  total_photo_count    Int?
+  category             String?
+  fetched_at           DateTime  @default(now())
+
+  @@index([fetched_at(sort: Desc)])
+  @@index([start_date(sort: Desc)])
+  @@map("activities")
+}
+
+model Plan {
+  id         Int      @id @default(autoincrement())
+  filename   String   @unique
+  race_type  String?
+  content    String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("plans")
+}

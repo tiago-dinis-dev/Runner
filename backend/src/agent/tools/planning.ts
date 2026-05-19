@@ -1,22 +1,25 @@
-import * as fs from "fs";
-import * as path from "path";
 import { getActivities } from "../../cache.js";
 import { speedToPace } from "../prompts.js";
 import { computeAthleteProfile } from "./helpers.js";
-import { DATA_DIR } from "../../config.js";
+import { db } from "../../db.js";
 
-// ── Plans storage path ────────────────────────────────────────────────────────
-function plansDir(): string {
-  const dir = path.join(DATA_DIR, "plans");
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
+// ── Markdown session rewriter ─────────────────────────────────────────────────
 function slugify(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-// ── Markdown session rewriter ─────────────────────────────────────────────────
+function parseFrontmatter(raw: string): Record<string, string> {
+  const meta: Record<string, string> = {};
+  const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
+  if (fmMatch) {
+    for (const line of fmMatch[1].split("\n")) {
+      const [key, ...val] = line.split(": ");
+      if (key && val.length) meta[key.trim()] = val.join(": ").replace(/^"|"$/g, "");
+    }
+  }
+  return meta;
+}
+
 const MONTH_MAP_R: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
   Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
@@ -298,7 +301,6 @@ export async function toolSavePlan(args: {
   const date = new Date().toISOString().split("T")[0];
   const slug = slugify(args.title);
   const filename = `${date}-${slug}.md`;
-  const filepath = path.join(plansDir(), filename);
 
   const frontmatter = [
     "---",
@@ -316,80 +318,64 @@ export async function toolSavePlan(args: {
   const full = frontmatter + args.content;
 
   if (!args.confirm) {
-    return { preview: true, filename, filepath, content: full, message: `Plan prepared. Call save_plan with confirm=true to persist.` };
+    return { preview: true, filename, content: full, message: `Plan prepared. Call save_plan with confirm=true to persist.` };
   }
 
-  fs.writeFileSync(filepath, full);
+  await db.plan.upsert({
+    where: { filename },
+    update: { content: full, race_type: args.race_type ?? null },
+    create: { filename, content: full, race_type: args.race_type ?? null },
+  });
 
   return {
     saved: true,
     filename,
-    filepath,
-    message: `✅ Plan "${args.title}" saved to data/plans/${filename}. Load it anytime with load_plan.`,
+    message: `✅ Plan "${args.title}" saved. Load it anytime with load_plan.`,
   };
 }
 
 export async function toolListPlans(args: { race_type?: string }): Promise<object> {
-  const dir = plansDir();
-  const files = fs.readdirSync(dir)
-    .filter((f) => f.endsWith(".md"))
-    .sort()
-    .reverse();
+  const rows = await db.plan.findMany({
+    where: args.race_type ? { race_type: { equals: args.race_type, mode: "insensitive" } } : undefined,
+    orderBy: { created_at: "desc" },
+  });
 
-  if (files.length === 0) {
+  if (rows.length === 0) {
     return { plans: [], message: "No saved plans yet. Use save_plan after generating a plan." };
   }
 
-  const plans = files.map((filename) => {
-    const raw = fs.readFileSync(path.join(dir, filename), "utf-8");
-    // Parse frontmatter
-    const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
-    const meta: Record<string, string> = {};
-    if (fmMatch) {
-      for (const line of fmMatch[1].split("\n")) {
-        const [key, ...val] = line.split(": ");
-        if (key && val.length) meta[key.trim()] = val.join(": ").replace(/^"|"$/g, "");
-      }
-    }
+  const plans = rows.map((row) => {
+    const meta = parseFrontmatter(row.content);
+    const body = row.content.replace(/^---[\s\S]*?---\n/, "");
     return {
-      filename,
-      title: meta.title ?? filename,
-      saved_at: meta.saved_at ?? "unknown",
-      race_type: meta.race_type ?? null,
+      filename: row.filename,
+      title: meta.title ?? row.filename,
+      saved_at: row.updated_at.toISOString(),
+      race_type: row.race_type ?? meta.race_type ?? null,
       race_date: meta.race_date ?? null,
       tags: meta.tags ?? null,
-      preview: raw.replace(/^---[\s\S]*?---\n/, "").slice(0, 200).replace(/\n/g, " ") + "...",
+      preview: body.slice(0, 200).replace(/\n/g, " ") + "...",
     };
-  }).filter((p) => !args.race_type || p.race_type?.toLowerCase() === args.race_type.toLowerCase());
+  });
 
   return { count: plans.length, plans };
 }
 
 export async function toolLoadPlan(args: { filename: string }): Promise<object> {
-  const filepath = path.join(plansDir(), args.filename);
+  const row = await db.plan.findUnique({ where: { filename: args.filename } });
 
-  if (!fs.existsSync(filepath)) {
-    return { error: `Plan file "${args.filename}" not found. Use list_plans to see available plans.` };
+  if (!row) {
+    return { error: `Plan "${args.filename}" not found. Use list_plans to see available plans.` };
   }
 
-  const raw = fs.readFileSync(filepath, "utf-8");
-  const content = raw.replace(/^---[\s\S]*?---\n/, "");
-
-  // Parse frontmatter
-  const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
-  const meta: Record<string, string> = {};
-  if (fmMatch) {
-    for (const line of fmMatch[1].split("\n")) {
-      const [key, ...val] = line.split(": ");
-      if (key && val.length) meta[key.trim()] = val.join(": ").replace(/^"|"$/g, "");
-    }
-  }
+  const meta = parseFrontmatter(row.content);
+  const content = row.content.replace(/^---[\s\S]*?---\n/, "");
 
   return {
-    filename: args.filename,
-    title: meta.title ?? args.filename,
-    saved_at: meta.saved_at ?? "unknown",
-    race_type: meta.race_type ?? null,
+    filename: row.filename,
+    title: meta.title ?? row.filename,
+    saved_at: row.updated_at.toISOString(),
+    race_type: row.race_type ?? meta.race_type ?? null,
     race_date: meta.race_date ?? null,
     tags: meta.tags ?? null,
     content,
@@ -398,14 +384,14 @@ export async function toolLoadPlan(args: { filename: string }): Promise<object> 
 
 // ── Tool: delete_plan ─────────────────────────────────────────────────────────
 export async function toolDeletePlan(args: { filename: string; confirm?: boolean }): Promise<object> {
-  const filepath = path.join(plansDir(), args.filename);
-  if (!fs.existsSync(filepath)) {
-    return { error: `Plan file "${args.filename}" not found.` };
+  const row = await db.plan.findUnique({ where: { filename: args.filename } });
+  if (!row) {
+    return { error: `Plan "${args.filename}" not found.` };
   }
   if (!args.confirm) {
     return { preview: true, filename: args.filename, message: `Plan "${args.filename}" exists. Call delete_plan with confirm=true to delete.` };
   }
-  fs.unlinkSync(filepath);
+  await db.plan.delete({ where: { filename: args.filename } });
   return { deleted: true, filename: args.filename, message: `Plan "${args.filename}" deleted.` };
 }
 
@@ -416,18 +402,17 @@ export async function toolMovePlanSession(args: {
   label: string;
   to_date: string;
 }): Promise<object> {
-  const filepath = path.join(plansDir(), args.filename);
-  if (!fs.existsSync(filepath)) {
-    return { error: `Plan file "${args.filename}" not found.` };
+  const row = await db.plan.findUnique({ where: { filename: args.filename } });
+  if (!row) {
+    return { error: `Plan "${args.filename}" not found.` };
   }
-  const raw = fs.readFileSync(filepath, "utf-8");
-  const updated = rewriteSessionDate(raw, args.from_date, args.label, args.to_date);
+  const updated = rewriteSessionDate(row.content, args.from_date, args.label, args.to_date);
   if (updated === null) {
     return {
       error: `Session "${args.label}" on ${args.from_date} not found in plan. Check the date and label are correct.`,
     };
   }
-  fs.writeFileSync(filepath, updated);
+  await db.plan.update({ where: { filename: args.filename }, data: { content: updated } });
   return {
     moved: true,
     filename: args.filename,
@@ -446,13 +431,12 @@ export async function toolEditPlanSession(args: {
   new_title?: string;
   new_details?: string;
 }): Promise<object> {
-  const filepath = path.join(plansDir(), args.filename);
-  if (!fs.existsSync(filepath)) {
-    return { error: `Plan file "${args.filename}" not found.` };
+  const row = await db.plan.findUnique({ where: { filename: args.filename } });
+  if (!row) {
+    return { error: `Plan "${args.filename}" not found.` };
   }
-  const raw = fs.readFileSync(filepath, "utf-8");
   const updated = rewriteSessionText(
-    raw,
+    row.content,
     args.date,
     args.label,
     args.new_title ?? args.label,
@@ -463,7 +447,7 @@ export async function toolEditPlanSession(args: {
       error: `Session "${args.label}" on ${args.date} not found in plan. Check the date and label are correct.`,
     };
   }
-  fs.writeFileSync(filepath, updated);
+  await db.plan.update({ where: { filename: args.filename }, data: { content: updated } });
   return {
     edited: true,
     filename: args.filename,
@@ -488,13 +472,11 @@ export async function toolNaturalEditPlan(args: {
   });
   const MODEL = process.env.OLLAMA_MODEL ?? "qwen3:cloud";
 
-  const filepath = path.join(plansDir(), args.filename);
-  if (!fs.existsSync(filepath)) {
-    return { error: `Plan file "${args.filename}" not found.` };
+  const row = await db.plan.findUnique({ where: { filename: args.filename } });
+  if (!row) {
+    return { error: `Plan "${args.filename}" not found.` };
   }
-  const raw = fs.readFileSync(filepath, "utf-8");
-
-  // Collect sessions (explicit-date rows and week-relative rows)
+  const raw = row.content;
   const sessions: { date: string; title: string; details?: string; rawLine: string }[] = [];
   const lines = raw.split("\n");
   let weekMonday: Date | null = null;

@@ -2,16 +2,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import axios from "axios";
 import type { StravaTokens } from "./types.js";
-import { DATA_DIR } from "../config.js";
+import { ROOT } from "../config.js";
 
-const TOKEN_FILE = path.join(DATA_DIR, "strava-tokens.json");
+const ENV_FILE = path.join(ROOT, ".env");
 
 export function loadTokens(): StravaTokens | null {
-  // Prefer token file; fall back to env vars
-  if (fs.existsSync(TOKEN_FILE)) {
-    return JSON.parse(fs.readFileSync(TOKEN_FILE, "utf-8")) as StravaTokens;
-  }
-
   const { STRAVA_ACCESS_TOKEN, STRAVA_REFRESH_TOKEN, STRAVA_TOKEN_EXPIRES_AT } = process.env;
 
   if (STRAVA_REFRESH_TOKEN) {
@@ -26,15 +21,29 @@ export function loadTokens(): StravaTokens | null {
   return null;
 }
 
+/** Write token values back into .env file (updates existing keys in-place) */
 export function saveTokens(tokens: StravaTokens): void {
-  const dir = path.dirname(TOKEN_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2));
+  let env = fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, "utf-8") : "";
 
-  // Also update env vars in memory for current process
-  process.env.STRAVA_ACCESS_TOKEN = tokens.access_token;
-  process.env.STRAVA_REFRESH_TOKEN = tokens.refresh_token;
-  process.env.STRAVA_TOKEN_EXPIRES_AT = String(tokens.expires_at);
+  const updates: Record<string, string> = {
+    STRAVA_ACCESS_TOKEN: tokens.access_token,
+    STRAVA_REFRESH_TOKEN: tokens.refresh_token,
+    STRAVA_TOKEN_EXPIRES_AT: String(tokens.expires_at),
+  };
+
+  for (const [key, value] of Object.entries(updates)) {
+    const regex = new RegExp(`^${key}=.*$`, "m");
+    const line = `${key}=${value}`;
+    if (regex.test(env)) {
+      env = env.replace(regex, line);
+    } else {
+      env = env.trimEnd() + `\n${line}\n`;
+    }
+    // Update in-memory env for the current process
+    process.env[key] = value;
+  }
+
+  fs.writeFileSync(ENV_FILE, env);
 }
 
 export async function refreshAccessToken(tokens: StravaTokens): Promise<StravaTokens> {
