@@ -4,7 +4,7 @@ import { calcLoad, computeAthleteProfile, groupByWeek } from "./helpers.js";
 
 export async function toolGetAthleteProfile(args: { force_refresh?: boolean }): Promise<object> {
   const all = await getActivities(args.force_refresh ?? false);
-  const profile = computeAthleteProfile(all);
+  const profile = await computeAthleteProfile(all);
 
   const runs = all.filter((a) => a.category === "Run");
   const grouped = groupByWeek(runs);
@@ -58,7 +58,7 @@ export async function toolGetWeeklySummary(args: { weeks?: number }): Promise<ob
 
 export async function toolAnalyzeFitnessTrend(args: { weeks?: number }): Promise<object> {
   const all = await getActivities();
-  const profile = computeAthleteProfile(all);
+  const profile = await computeAthleteProfile(all);
   const grouped = groupByWeek(all);
   const weekKeys = Object.keys(grouped).sort().reverse().slice(0, args.weeks ?? 12);
 

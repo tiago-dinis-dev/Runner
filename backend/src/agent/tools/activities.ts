@@ -67,7 +67,7 @@ export async function toolGetLastSession(args: {
   force_refresh?: boolean;
 }): Promise<object> {
   const all = await getActivities(args.force_refresh ?? false);
-  const profile = computeAthleteProfile(all);
+  const profile = await computeAthleteProfile(all);
 
   const filtered = args.category
     ? all.filter((a) => a.category?.toLowerCase() === args.category!.toLowerCase())
